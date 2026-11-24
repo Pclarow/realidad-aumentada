@@ -88,11 +88,12 @@ new GLTFLoader().load("asset.glb", (gltf) => {
   }
   mensaje();
 }, (p) => {
-  if (p.total) estado.textContent = "Cargando modelo… " + Math.round(p.loaded / p.total * 100) + "%";
+  if (p.total && !camaraFallo) estado.textContent = "Cargando modelo… " + Math.min(100, Math.round(p.loaded / p.total * 100)) + "%";
 }, () => { estado.textContent = "No se pudo cargar el modelo 3D"; });
 
 // ---------- cámara del celular / computador ----------
 let frontal = true;
+let camaraFallo = false;
 async function abrirCamara() {
   if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -103,8 +104,8 @@ async function abrirCamara() {
   video.classList.toggle("espejo", frontal);
   await video.play();
 }
-botonGirar.onclick = () => { frontal = !frontal; abrirCamara().catch(errorCamara); };
-function errorCamara() { estado.textContent = "No se pudo abrir la cámara. Revisa los permisos."; }
+botonGirar.onclick = () => { frontal = !frontal; camaraFallo = false; abrirCamara().then(mensaje).catch(errorCamara); };
+function errorCamara() { camaraFallo = true; estado.textContent = "No se pudo abrir la cámara. Revisa los permisos."; }
 
 // ---------- detector de manos (MediaPipe) ----------
 let detector = null;
@@ -120,7 +121,7 @@ async function cargarDetector() {
 }
 
 function mensaje() {
-  if (detector && ancla.children.length) estado.textContent = "Muestra tu mano abierta a la cámara ✋ (la mano es el marcador)";
+  if (detector && ancla.children.length && !camaraFallo) estado.textContent = "Muestra tu mano abierta a la cámara ✋ (la mano es el marcador)";
 }
 
 // pasar un punto de la mano (0 a 1) a píxeles de la pantalla,
@@ -209,7 +210,8 @@ function animar() {
   renderer.render(escena, camara);
 }
 
-abrirCamara().then(cargarDetector).catch(errorCamara);
+abrirCamara().catch(errorCamara);
+cargarDetector().catch(() => { estado.textContent = "No se pudo cargar el detector de manos"; });
 animar();
 </script>
 </body>
