@@ -198,10 +198,10 @@ function animar() {
       const muneca = aPantalla(mano[0]);
       const medio = aPantalla(mano[9]);
       const largoMano = muneca.distanceTo(medio);
-      // el modelo mide ~2 veces la palma y gira según la dirección de la mano
+      // el modelo mide un poco más que la palma y gira según la dirección de la mano
       dibujarFlecha(muneca, medio, largoMano);   // la flecha roja es el marcador
       destino.pos.set(centro.x, centro.y, 0);
-      destino.escala = largoMano * 2.2;
+      destino.escala = largoMano * 1.3;
       destino.giro = Math.atan2(medio.y - muneca.y, medio.x - muneca.x) - Math.PI / 2;
       if (!ancla.visible) {           // primera vez: aparecer directo en la mano
         ancla.position.copy(destino.pos);
