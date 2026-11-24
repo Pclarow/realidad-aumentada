@@ -9,3 +9,12 @@ Un modelo 3D animado aparece sobre la imagen marcador al escanearla con la cáma
 - `marker.patt`: patrón del marcador que reconoce la cámara
 
 Taller de Interfaces · Universidad Adolfo Ibáñez · 2026 · Pedro Claro
+
+
+## Marcador
+
+Abre o imprime esta imagen y apunta la cámara del celular hacia ella:
+
+![Marcador](marker.png)
+
+Link directo: https://pclarow.github.io/realidad-aumentada/marker.png
