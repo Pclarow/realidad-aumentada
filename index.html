@@ -1,53 +1,216 @@
 <!doctype html>
-<html>
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Realidad aumentada · Pedro Claro</title>
-        <script src="https://aframe.io/releases/1.0.4/aframe.min.js"></script>
-        <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-        <script src="https://raw.githack.com/donmccurdy/aframe-extras/master/dist/aframe-extras.loaders.min.js"></script>
-        <script src="https://raw.githack.com/AR-js-org/studio-backend/master/src/modules/marker/tools/gesture-detector.js"></script>
-        <script src="https://raw.githack.com/AR-js-org/studio-backend/master/src/modules/marker/tools/gesture-handler.js"></script>
-    </head>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realidad aumentada · Pedro Claro</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
+  video, canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  video { object-fit: cover; }
+  .espejo { transform: scaleX(-1); }
+  #estado { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(0,0,0,.65); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 16px; text-align: center; max-width: 90vw; }
+  #girar { position: fixed; top: 16px; right: 16px; background: rgba(0,0,0,.6); color: #fff; border: 1px solid #fff6; border-radius: 10px; padding: 8px 14px; font-size: 15px; }
+</style>
+</head>
+<body>
+<video id="video" playsinline muted></video>
+<canvas id="marca"></canvas>
+<canvas id="lienzo"></canvas>
+<button id="girar">Cambiar cámara</button>
+<div id="estado">Cargando…</div>
 
-    <body style="margin: 0; overflow: hidden;">
-        <a-scene
-            vr-mode-ui="enabled: false;"
-            loading-screen="enabled: false;"
-            renderer="logarithmicDepthBuffer: true;"
-            arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
-            id="scene"
-            embedded
-            gesture-detector
-        >
-            <a-assets>
-                <a-asset-item
-                    id="animated-asset"
-                    src="asset.glb"
-                ></a-asset-item>
-            </a-assets>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
 
-            <a-marker
-                id="animated-marker"
-                type="pattern"
-                preset="custom"
-                url="marker.patt"
-                raycaster="objects: .clickable"
-                emitevents="true"
-                cursor="fuse: false; rayOrigin: mouse;"
-            >
-                <a-entity
-                    id="bowser-model"
-                    scale="0.6065556692798462 0.6065556692798462 0.6065556692798462"
-                    animation-mixer="loop: repeat"
-                    gltf-model="#animated-asset"
-                    class="clickable"
-                    gesture-handler
-                ></a-entity>
-            </a-marker>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-            <a-entity camera></a-entity>
-        </a-scene>
-    </body>
+const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const MODELO_MANO = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+const video = document.getElementById("video");
+const lienzo = document.getElementById("lienzo");
+const estado = document.getElementById("estado");
+const botonGirar = document.getElementById("girar");
+const marca = document.getElementById("marca");
+const pincel = marca.getContext("2d");
+
+// ---------- escena 3D transparente encima del video ----------
+const renderer = new THREE.WebGLRenderer({ canvas: lienzo, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const escena = new THREE.Scene();
+// cámara ortográfica en píxeles de pantalla: (0,0) es el centro
+const camara = new THREE.OrthographicCamera(-1, 1, 1, -1, -5000, 5000);
+camara.position.z = 1000;
+escena.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.2));
+const sol = new THREE.DirectionalLight(0xffffff, 2);
+sol.position.set(300, 600, 800);
+escena.add(sol);
+
+function ajustarTamano() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  marca.width = w; marca.height = h;
+  camara.left = -w / 2; camara.right = w / 2; camara.top = h / 2; camara.bottom = -h / 2;
+  camara.updateProjectionMatrix();
+}
+addEventListener("resize", ajustarTamano);
+ajustarTamano();
+
+// ---------- modelo 3D (el mismo del marcador) ----------
+const ancla = new THREE.Group();   // se mueve con la mano
+ancla.visible = false;
+escena.add(ancla);
+let mezclador = null;
+
+new GLTFLoader().load("asset.glb", (gltf) => {
+  const modelo = gltf.scene;
+  // centrar el modelo y dejarlo de 1 unidad de alto
+  const caja = new THREE.Box3().setFromObject(modelo);
+  const tam = caja.getSize(new THREE.Vector3());
+  const centro = caja.getCenter(new THREE.Vector3());
+  modelo.position.sub(centro);
+  modelo.position.y += tam.y / 2;           // que se pare sobre la palma
+  const envoltura = new THREE.Group();
+  envoltura.add(modelo);
+  envoltura.scale.setScalar(1 / Math.max(tam.x, tam.y, tam.z));
+  ancla.add(envoltura);
+  if (gltf.animations.length) {
+    mezclador = new THREE.AnimationMixer(modelo);
+    gltf.animations.forEach((a) => mezclador.clipAction(a).play());
+  }
+  mensaje();
+}, (p) => {
+  if (p.total) estado.textContent = "Cargando modelo… " + Math.round(p.loaded / p.total * 100) + "%";
+}, () => { estado.textContent = "No se pudo cargar el modelo 3D"; });
+
+// ---------- cámara del celular / computador ----------
+let frontal = true;
+async function abrirCamara() {
+  if (video.srcObject) video.srcObject.getTracks().forEach((t) => t.stop());
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: frontal ? "user" : "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  });
+  video.srcObject = stream;
+  video.classList.toggle("espejo", frontal);
+  await video.play();
+}
+botonGirar.onclick = () => { frontal = !frontal; abrirCamara().catch(errorCamara); };
+function errorCamara() { estado.textContent = "No se pudo abrir la cámara. Revisa los permisos."; }
+
+// ---------- detector de manos (MediaPipe) ----------
+let detector = null;
+async function cargarDetector() {
+  const { FilesetResolver, HandLandmarker } = await import(MP);
+  const archivos = await FilesetResolver.forVisionTasks(MP + "/wasm");
+  detector = await HandLandmarker.createFromOptions(archivos, {
+    baseOptions: { modelAssetPath: MODELO_MANO, delegate: "GPU" },
+    runningMode: "VIDEO",
+    numHands: 1
+  });
+  mensaje();
+}
+
+function mensaje() {
+  if (detector && ancla.children.length) estado.textContent = "Muestra tu mano abierta a la cámara ✋ (la mano es el marcador)";
+}
+
+// pasar un punto de la mano (0 a 1) a píxeles de la pantalla,
+// considerando que el video se recorta para llenar la pantalla (object-fit: cover)
+function aPantalla(p) {
+  const vw = video.videoWidth, vh = video.videoHeight, w = innerWidth, h = innerHeight;
+  const escala = Math.max(w / vw, h / vh);
+  let x = (p.x * vw * escala) - (vw * escala - w) / 2;
+  const y = (p.y * vh * escala) - (vh * escala - h) / 2;
+  if (frontal) x = w - x;                     // la cámara frontal se ve como espejo
+  return new THREE.Vector2(x - w / 2, h / 2 - y);   // centro (0,0), y hacia arriba
+}
+
+// ---------- marcador: flecha roja sobre la mano ----------
+// convierte de coordenadas de la escena (centro 0,0) a píxeles del canvas
+function aCanvas(v) { return [v.x + innerWidth / 2, innerHeight / 2 - v.y]; }
+
+function dibujarFlecha(muneca, medio, largoMano) {
+  const [x1, y1] = aCanvas(muneca);
+  const [x2, y2] = aCanvas(medio);
+  const angulo = Math.atan2(y2 - y1, x2 - x1);
+  const punta = largoMano * 0.45;          // tamaño de la punta según la mano
+  pincel.strokeStyle = "#ff2a2a";
+  pincel.fillStyle = "#ff2a2a";
+  pincel.lineWidth = Math.max(4, largoMano * 0.08);
+  pincel.lineCap = "round";
+  // cuerpo de la flecha: de la muñeca hacia los dedos
+  pincel.beginPath();
+  pincel.moveTo(x1, y1);
+  pincel.lineTo(x2 - Math.cos(angulo) * punta * 0.6, y2 - Math.sin(angulo) * punta * 0.6);
+  pincel.stroke();
+  // punta de la flecha
+  pincel.beginPath();
+  pincel.moveTo(x2, y2);
+  pincel.lineTo(x2 - Math.cos(angulo - 0.45) * punta, y2 - Math.sin(angulo - 0.45) * punta);
+  pincel.lineTo(x2 - Math.cos(angulo + 0.45) * punta, y2 - Math.sin(angulo + 0.45) * punta);
+  pincel.closePath();
+  pincel.fill();
+}
+
+// ---------- ciclo principal ----------
+const reloj = new THREE.Clock();
+const destino = { pos: new THREE.Vector3(), escala: 1, giro: 0 };
+let ultimoTiempo = -1;
+
+function animar() {
+  requestAnimationFrame(animar);
+  const dt = reloj.getDelta();
+  if (mezclador) mezclador.update(dt);
+
+  if (detector && video.readyState >= 2 && video.currentTime !== ultimoTiempo) {
+    ultimoTiempo = video.currentTime;
+    const res = detector.detectForVideo(video, performance.now());
+    const mano = res.landmarks && res.landmarks[0];
+    pincel.clearRect(0, 0, marca.width, marca.height);
+    if (mano) {
+      // centro de la palma: muñeca (0) y bases de los dedos (5, 9, 13, 17)
+      const puntos = [0, 5, 9, 13, 17].map((i) => aPantalla(mano[i]));
+      const centro = puntos.reduce((a, b) => a.add(b), new THREE.Vector2()).divideScalar(puntos.length);
+      const muneca = aPantalla(mano[0]);
+      const medio = aPantalla(mano[9]);
+      const largoMano = muneca.distanceTo(medio);
+      // el modelo mide ~2 veces la palma y gira según la dirección de la mano
+      dibujarFlecha(muneca, medio, largoMano);   // la flecha roja es el marcador
+      destino.pos.set(centro.x, centro.y, 0);
+      destino.escala = largoMano * 2.2;
+      destino.giro = Math.atan2(medio.y - muneca.y, medio.x - muneca.x) - Math.PI / 2;
+      if (!ancla.visible) {           // primera vez: aparecer directo en la mano
+        ancla.position.copy(destino.pos);
+        ancla.scale.setScalar(destino.escala);
+        ancla.rotation.z = destino.giro;
+      }
+      ancla.visible = ancla.children.length > 0;
+    } else {
+      ancla.visible = false;
+    }
+  }
+
+  // movimiento suave hacia la posición de la mano
+  if (ancla.visible) {
+    ancla.position.lerp(destino.pos, 0.35);
+    ancla.scale.setScalar(THREE.MathUtils.lerp(ancla.scale.x, destino.escala, 0.3));
+    ancla.rotation.z = THREE.MathUtils.lerp(ancla.rotation.z, destino.giro, 0.3);
+    ancla.rotation.y += dt * 0.6;     // gira lentamente sobre sí mismo
+  }
+  renderer.render(escena, camara);
+}
+
+abrirCamara().then(cargarDetector).catch(errorCamara);
+animar();
+</script>
+</body>
 </html>

@@ -1,20 +1,25 @@
-# Realidad aumentada con marcador
+# Realidad aumentada · Pedro Claro
 
-Un modelo 3D animado aparece sobre la imagen marcador al escanearla con la cámara del celular. Hecho con [A-Frame](https://aframe.io) y [AR.js](https://ar-js-org.github.io/AR.js-Docs/).
+Ejercicio de la Unidad 3 (Taller de Diseño de Interfaces, UAI).
 
-**Probar:** abre https://pclarow.github.io/realidad-aumentada/ en el celular, acepta el permiso de cámara y apunta a la imagen marcador.
+**Ver en vivo:** https://pclarow.github.io/realidad-aumentada/
 
-- `index.html`: escena de realidad aumentada
-- `asset.glb`: modelo 3D animado
-- `marker.patt`: patrón del marcador que reconoce la cámara
+## Cómo funciona
 
-Taller de Interfaces · Universidad Adolfo Ibáñez · 2026 · Pedro Claro
+La **mano es el marcador**. La cámara detecta la mano con MediaPipe (Hand Landmarker). Cuando la reconoce, dibuja una **flecha roja** sobre ella (desde la muñeca hacia los dedos) y encima aparece el modelo 3D animado, que sigue la posición, el tamaño y el giro de la mano.
 
+Es un marcador universal: no hace falta imprimir ninguna imagen, cualquier persona puede probarlo con su propia mano.
 
-## Marcador
+1. Abre el link en el celular o el computador y da permiso a la cámara.
+2. Muestra tu mano abierta.
+3. El botón "Cambiar cámara" alterna entre la cámara frontal y la trasera.
 
-Abre o imprime esta imagen y apunta la cámara del celular hacia ella:
+## Tecnologías
 
-![Marcador](marker.png)
+- MediaPipe Tasks Vision (detección de manos)
+- Three.js + GLTFLoader (modelo 3D)
+- Canvas 2D (flecha roja del marcador)
 
-Link directo: https://pclarow.github.io/realidad-aumentada/marker.png
+## Versión anterior
+
+La primera versión usaba un marcador de imagen con AR.js: [marcador.html](https://pclarow.github.io/realidad-aumentada/marcador.html) (necesita [marker.png](https://pclarow.github.io/realidad-aumentada/marker.png)).
