@@ -88,7 +88,7 @@ new GLTFLoader().load("asset.glb", (gltf) => {
   }
   mensaje();
 }, (p) => {
-  if (p.total && !camaraFallo) estado.textContent = "Cargando modelo… " + Math.min(100, Math.round(p.loaded / p.total * 100)) + "%";
+  if (p.total && !camaraFallo && !detector) estado.textContent = "Cargando modelo… " + Math.min(100, Math.round(p.loaded / p.total * 100)) + "%";
 }, () => { estado.textContent = "No se pudo cargar el modelo 3D"; });
 
 // ---------- cámara del celular / computador ----------
@@ -112,16 +112,27 @@ let detector = null;
 async function cargarDetector() {
   const { FilesetResolver, HandLandmarker } = await import(MP);
   const archivos = await FilesetResolver.forVisionTasks(MP + "/wasm");
-  detector = await HandLandmarker.createFromOptions(archivos, {
-    baseOptions: { modelAssetPath: MODELO_MANO, delegate: "GPU" },
+  const opciones = (delegado) => ({
+    baseOptions: { modelAssetPath: MODELO_MANO, delegate: delegado },
     runningMode: "VIDEO",
-    numHands: 1
+    numHands: 1,
+    minHandDetectionConfidence: 0.3,
+    minHandPresenceConfidence: 0.3,
+    minTrackingConfidence: 0.3
   });
+  try {
+    detector = await HandLandmarker.createFromOptions(archivos, opciones("GPU"));
+  } catch (e) {
+    detector = await HandLandmarker.createFromOptions(archivos, opciones("CPU"));   // si el celular no soporta GPU
+  }
   mensaje();
 }
 
+let manoVista = null;
 function mensaje() {
-  if (detector && ancla.children.length && !camaraFallo) estado.textContent = "Muestra tu mano abierta a la cámara ✋ (la mano es el marcador)";
+  if (camaraFallo) return;
+  if (!detector) { estado.textContent = "Cargando detector de manos…"; return; }
+  estado.textContent = manoVista ? "✋ Mano detectada" : "Buscando tu mano… muéstrala abierta a la cámara";
 }
 
 // pasar un punto de la mano (0 a 1) a píxeles de la pantalla,
@@ -174,8 +185,11 @@ function animar() {
 
   if (detector && video.readyState >= 2 && video.currentTime !== ultimoTiempo) {
     ultimoTiempo = video.currentTime;
-    const res = detector.detectForVideo(video, performance.now());
+    let res;
+    try { res = detector.detectForVideo(video, performance.now()); }
+    catch (e) { estado.textContent = "Error al detectar: " + e.message; return; }
     const mano = res.landmarks && res.landmarks[0];
+    if (!!mano !== manoVista) { manoVista = !!mano; mensaje(); }
     pincel.clearRect(0, 0, marca.width, marca.height);
     if (mano) {
       // centro de la palma: muñeca (0) y bases de los dedos (5, 9, 13, 17)
